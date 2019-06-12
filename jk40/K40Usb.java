@@ -13,7 +13,7 @@ import org.usb4java.DeviceList;
 import org.usb4java.LibUsb;
 import org.usb4java.LibUsbException;
 
-public class K40Usb implements AutoCloseable {
+public class K40Usb {
 
     public static final int K40VENDERID = 0x1A86;
     public static final int K40PRODUCTID = 0x5512;
@@ -23,6 +23,7 @@ public class K40Usb implements AutoCloseable {
     public static final int PACKET_SIZE = 30;
     public static final int TIMEOUT = 200;
 
+    ByteBuffer hello = ByteBuffer.allocateDirect(1);
     ByteBuffer packet = ByteBuffer.allocateDirect(34);
     IntBuffer transfered = IntBuffer.allocate(1);
 
@@ -89,6 +90,16 @@ public class K40Usb implements AutoCloseable {
         }
     }
 
+    public void say_hello() {
+        if (handle == null) {
+            throw new LibUsbException("Handle not set", 0);
+        }
+        int results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, hello, transfered, TIMEOUT);
+        if (results < LibUsb.SUCCESS) {
+            throw new LibUsbException("Data move failed.", results);
+        }
+    }
+
     public void flush() {
         send_complete_packets();
         if (buffer.length() < PACKET_SIZE) {
@@ -99,6 +110,7 @@ public class K40Usb implements AutoCloseable {
     }
 
     public void open() throws LibUsbException {
+        hello.put((byte) 160);
         openContext();
         findK40();
         openHandle();
@@ -107,7 +119,6 @@ public class K40Usb implements AutoCloseable {
         claimInterface();
     }
 
-    @Override
     public void close() {
         try {
             flush();
@@ -161,7 +172,7 @@ public class K40Usb implements AutoCloseable {
             context = null;
         }
     }
-    
+
     public void closeHandle() {
         if (handle != null) {
             LibUsb.close(handle);
@@ -176,7 +187,6 @@ public class K40Usb implements AutoCloseable {
             throw new LibUsbException("Could not open device handle.", results);
         }
     }
-
 
     public void claimInterface() {
         int results = LibUsb.claimInterface(handle, interface_number);
