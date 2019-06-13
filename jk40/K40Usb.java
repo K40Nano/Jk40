@@ -1,5 +1,7 @@
 package jk40;
 
+//MIT License.
+
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import org.usb4java.Context;
@@ -13,6 +15,18 @@ import org.usb4java.DeviceList;
 import org.usb4java.LibUsb;
 import org.usb4java.LibUsbException;
 
+/*
+K40Usb is the core driver for communcating with the K40 Stock Nano board.
+It will process the USB interfacing claim and perform background operations to
+support the protocol required.
+
+The only commands you should need are:
+open() : Opens connection, initializes the device.
+close() : Closes connection.
+send_packet(data) : sends 30 bytes of payload to the device. 
+wait_for_finish() : wait until the state is STATUS_FINISH.
+wait_for_ok() : wait until the state is STATUS_OK
+*/
 public class K40Usb {
 
     public static final int K40VENDERID = 0x1A86;
@@ -28,9 +42,6 @@ public class K40Usb {
     private final ByteBuffer request_status = ByteBuffer.allocateDirect(1);
     private final ByteBuffer packet = ByteBuffer.allocateDirect(34);
 
-    StringBuffer buffer = new StringBuffer();
-
-    private Thread thread = null;
     private Context context = null;
     private Device device = null;
     private DeviceHandle handle = null;
@@ -51,12 +62,10 @@ public class K40Usb {
     public int byte_4 = 0;
     public int byte_5 = 0;
 
-    boolean is_shutdown = false;
-    boolean shutdown_when_finished = false;
-
     /**
      * ******************
-     * CRC function via: License: 2-clause "simplified" BSD license Copyright
+     * CRC function via:
+     * License: 2-clause "simplified" BSD license Copyright
      * (C) 1992-2017 Arjen Lentz
      * https://lentz.com.au/blog/calculating-crc-with-a-tiny-32-entry-lookup-table
      * *******************
@@ -78,21 +87,6 @@ public class K40Usb {
     }
     //*//
 
-    public void send(String message) {
-        buffer.append(message);
-    }
-
-    public void process(String message) {
-        buffer.append(message);
-        int pad = buffer.length() % PAYLOAD_LENGTH;
-        buffer.append("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF".subSequence(0, pad));
-    }
-
-    public void flush() {
-        send_complete_packets();
-        send_incomplete_packets();
-    }
-
     public void open() throws LibUsbException {
         openContext();
         findK40();
@@ -103,11 +97,7 @@ public class K40Usb {
         LibUsb.controlTransfer(handle, (byte) 64, (byte) 177, (short) 258, (short) 0, packet, 50);
     }
 
-    public void close() {
-        try {
-            flush();
-        } catch (LibUsbException | IllegalArgumentException e) {
-        }
+    public void close() throws LibUsbException {
         releaseInterface();
         closeHandle();
         if (kernel_detached) {
@@ -116,120 +106,27 @@ public class K40Usb {
         closeContext();
     }
 
-    public void start() {
-        if (thread != null) {
-            return;
+    public void send_packet(CharSequence cs) {
+        if (cs.length() != PAYLOAD_LENGTH) {
+            throw new LibUsbException("Packets must be exactly " + PAYLOAD_LENGTH + " bytes.",0);
         }
-        is_shutdown = false;
-        thread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    open();
-                    while (!is_shutdown) {
-                        if (send_complete_packets()) {
-                            try {
-                                Thread.sleep(50);
-                            } catch (InterruptedException ex) {
-                            }
-                        }
-                    }
-                } catch (LibUsbException e) {
-                    //USB broke at some point.
-                }
-                close();
-                thread = null;
-                is_shutdown = false;
-            }
-        });
-        thread.start();
-
+        create_packet(cs);
+        do {
+            transmit_packet();
+            update_status();
+        } while (status == STATUS_CRC);
     }
 
-    public void shutdown() {
-        is_shutdown = true;
-    }
-
-    public void setShutdownWhenFinished(boolean b) {
-        shutdown_when_finished = b;
-    }
-    
-    public int size() {
-        return buffer.length();
-    }
-    
-    public void create_packet(CharSequence cs) {
+    private void create_packet(CharSequence cs) {
         packet.clear();
         packet.put((byte) 166);
         packet.put((byte) 0);
         for (int i = 0; i < cs.length(); i++) {
             packet.put((byte) cs.charAt(i));
         }
-        while (packet.position() < 32) {
-            packet.put((byte) 'F');
-        }
         packet.put((byte) 166);
         packet.put(crc(packet));
 
-    }
-
-    private void wait_for_ok() {
-        while (true) {
-            update_status();
-            if (status == STATUS_OK) {
-                break;
-            }
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException ex) {
-            }
-        }
-    }
-
-    public void wait_for_finish() {
-        while (true) {
-            update_status();
-            if (status == STATUS_FINISH) {
-                break;
-            }
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException ex) {
-            }
-        }
-    }
-
-    private boolean send_complete_packets() {
-        if (buffer.length() < PAYLOAD_LENGTH) {
-            return false;
-        }
-        while (buffer.length() >= PAYLOAD_LENGTH) {
-            wait_for_ok();
-            create_packet(buffer.subSequence(0, PAYLOAD_LENGTH));
-            buffer.delete(0, PAYLOAD_LENGTH);
-            send_packet();
-        }
-        return true;
-    }
-
-    private boolean send_incomplete_packets() {
-        if (buffer.length() == 0) {
-            return false;
-        }
-        if (buffer.length() < PAYLOAD_LENGTH) {
-            wait_for_ok();
-            create_packet(buffer.subSequence(0, buffer.length()));
-            buffer.delete(0, buffer.length());
-            send_packet();
-        }
-        return true;
-    }
-
-    private void send_packet() {
-        do {
-            transmit_packet();
-            update_status();
-        } while (status != STATUS_OK);
     }
 
     private void transmit_packet() {
@@ -243,7 +140,7 @@ public class K40Usb {
     private void update_status() {
         transfered.clear();
         request_status.put(0, (byte) 160);
-        int results = 0;
+        int results;
         results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, request_status, transfered, 500L);
         if (results < LibUsb.SUCCESS) {
             throw new LibUsbException("Data move failed.", results);
@@ -262,6 +159,27 @@ public class K40Usb {
             byte_3 = read_buffer.get(3) & 0xFF;
             byte_4 = read_buffer.get(4) & 0xFF;
             byte_5 = read_buffer.get(5) & 0xFF;
+        }
+    }
+
+    public void wait_for_finish() {
+        wait(STATUS_FINISH);
+    }
+
+    public void wait_for_ok() {
+        wait(STATUS_OK);
+    }
+
+    public void wait(int state) {
+        while (true) {
+            update_status();
+            if (status == state) {
+                break;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ex) {
+            }
         }
     }
 
