@@ -1,4 +1,4 @@
-package jk40;
+ 
 
 import org.usb4java.LibUsbException;
 
@@ -9,11 +9,22 @@ public class K40main {
         try {
             usb = new K40Usb();
             usb.open();
-            usb.write("IPP");   
+            System.out.println("opened.");
+            usb.write("IPP");
+            usb.flush();
+            usb.write("IBzzS1P");
+            usb.flush();
+            usb.write("IRzzS1P");
+            System.out.println("written.");
         } catch (LibUsbException ignored) {
+            ignored.printStackTrace();
         }
         finally {
-            if (usb != null) usb.close();
+            if (usb != null) {
+                
+                usb.close();
+                        System.out.println("Closed.");
+                    }
         }
     }
 
