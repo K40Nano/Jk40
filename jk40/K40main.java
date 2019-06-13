@@ -1,31 +1,16 @@
- 
-
-import org.usb4java.LibUsbException;
+package jk40;
 
 public class K40main {
 
     public static void main(String[] args) {
-        K40Usb usb = null;
-        try {
-            usb = new K40Usb();
-            usb.open();
-            System.out.println("opened.");
-            usb.write("IPP");
-            usb.flush();
-            usb.write("IBzzS1P");
-            usb.flush();
-            usb.write("IRzzS1P");
-            System.out.println("written.");
-        } catch (LibUsbException ignored) {
-            ignored.printStackTrace();
-        }
-        finally {
-            if (usb != null) {
-                
-                usb.close();
-                        System.out.println("Closed.");
-                    }
-        }
+        K40Usb usb = new K40Usb();
+        usb.setShutdownWhenFinished(true);
+        usb.process("IPP");
+        usb.process("IBzzS1P");
+        usb.process("IRzzS1P");
+        usb.start();
+        System.out.println("Main thread has ended.");
+        System.out.println(usb.size());
     }
 
 }

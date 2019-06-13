@@ -1,4 +1,4 @@
-     
+package jk40;
 
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
@@ -17,37 +17,51 @@ public class K40Usb {
 
     public static final int K40VENDERID = 0x1A86;
     public static final int K40PRODUCTID = 0x5512;
+
     public static final byte K40_ENDPOINT_WRITE = (byte) 0x02; //0x02  EP 2 OUT
     public static final byte K40_ENDPOINT_READ = (byte) 0x82; //0x82  EP 2 IN
     public static final byte K40_ENDPOINT_READ_I = (byte) 0x81; //0x81  EP 1 IN
 
-    public static final int PACKET_SIZE = 30;
+    public static final int PAYLOAD_LENGTH = 30;
 
-    ByteBuffer hello = ByteBuffer.allocateDirect(1);
-    ByteBuffer packet = ByteBuffer.allocateDirect(34);
-    IntBuffer transfered = IntBuffer.allocate(1);
+    private final IntBuffer transfered = IntBuffer.allocate(1);
+    private final ByteBuffer request_status = ByteBuffer.allocateDirect(1);
+    private final ByteBuffer packet = ByteBuffer.allocateDirect(34);
 
     StringBuffer buffer = new StringBuffer();
 
-    Context context = null;
-    Device device = null;
-    DeviceHandle handle = null;
-    boolean kernel_detached = false;
-    int interface_number = 0;
-    
+    private Thread thread = null;
+    private Context context = null;
+    private Device device = null;
+    private DeviceHandle handle = null;
+    private boolean kernel_detached = false;
+    private int interface_number = 0;
+
     public static final int STATUS_OK = 206;
     public static final int STATUS_CRC = 207;
+
+    public static final int STATUS_FINISH = 236;
     public static final int STATUS_BUSY = 238;
-    
+    public static final int STATUS_POWER = 239;
+
     public int byte_0 = 0;
     public int status = 0;
     public int byte_2 = 0;
     public int byte_3 = 0;
     public int byte_4 = 0;
     public int byte_5 = 0;
-    
 
-    int[] crc_table = new int[]{
+    boolean is_shutdown = false;
+    boolean shutdown_when_finished = false;
+
+    /**
+     * ******************
+     * CRC function via: License: 2-clause "simplified" BSD license Copyright
+     * (C) 1992-2017 Arjen Lentz
+     * https://lentz.com.au/blog/calculating-crc-with-a-tiny-32-entry-lookup-table
+     * *******************
+     */
+    static final int[] CRC_TABLE = new int[]{
         0x00, 0x5E, 0xBC, 0xE2, 0x61, 0x3F, 0xDD, 0x83,
         0xC2, 0x9C, 0x7E, 0x20, 0xA3, 0xFD, 0x1F, 0x41,
         0x00, 0x9D, 0x23, 0xBE, 0x46, 0xDB, 0x65, 0xF8,
@@ -58,21 +72,93 @@ public class K40Usb {
         int crc = 0;
         for (int i = 2; i < 32; i++) {
             crc = line.get(i) ^ crc;
-            crc = crc_table[crc & 0x0f] ^ crc_table[16 + ((crc >> 4) & 0x0f)];
+            crc = CRC_TABLE[crc & 0x0f] ^ CRC_TABLE[16 + ((crc >> 4) & 0x0f)];
         }
         return (byte) crc;
     }
+    //*//
 
-    public void write(String message) {
-        System.out.println("Message: " + message);
+    public void send(String message) {
         buffer.append(message);
-        System.out.println("Buffer: " + buffer.toString());
-        send_complete_packets();
     }
 
+    public void process(String message) {
+        buffer.append(message);
+        int pad = buffer.length() % PAYLOAD_LENGTH;
+        buffer.append("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF".subSequence(0, pad));
+    }
+
+    public void flush() {
+        send_complete_packets();
+        send_incomplete_packets();
+    }
+
+    public void open() throws LibUsbException {
+        openContext();
+        findK40();
+        openHandle();
+        checkConfig();
+        detatchIfNeeded();
+        claimInterface();
+        LibUsb.controlTransfer(handle, (byte) 64, (byte) 177, (short) 258, (short) 0, packet, 50);
+    }
+
+    public void close() {
+        try {
+            flush();
+        } catch (LibUsbException | IllegalArgumentException e) {
+        }
+        releaseInterface();
+        closeHandle();
+        if (kernel_detached) {
+            reattachIfNeeded();
+        }
+        closeContext();
+    }
+
+    public void start() {
+        if (thread != null) {
+            return;
+        }
+        is_shutdown = false;
+        thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    open();
+                    while (!is_shutdown) {
+                        if (send_complete_packets()) {
+                            try {
+                                Thread.sleep(50);
+                            } catch (InterruptedException ex) {
+                            }
+                        }
+                    }
+                } catch (LibUsbException e) {
+                    //USB broke at some point.
+                }
+                close();
+                thread = null;
+                is_shutdown = false;
+            }
+        });
+        thread.start();
+
+    }
+
+    public void shutdown() {
+        is_shutdown = true;
+    }
+
+    public void setShutdownWhenFinished(boolean b) {
+        shutdown_when_finished = b;
+    }
+    
+    public int size() {
+        return buffer.length();
+    }
+    
     public void create_packet(CharSequence cs) {
-        System.out.println("Buffer: " + buffer.toString());
-        System.out.println(cs.toString());
         packet.clear();
         packet.put((byte) 166);
         packet.put((byte) 0);
@@ -87,67 +173,88 @@ public class K40Usb {
 
     }
 
-    public void send_complete_packets() {
-        while (buffer.length() >= PACKET_SIZE) {
+    private void wait_for_ok() {
+        while (true) {
             update_status();
             if (status == STATUS_OK) {
-                 create_packet(buffer.subSequence(0, PACKET_SIZE));
-                 buffer.delete(0, PACKET_SIZE);
-                 send_packet();
+                break;
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ex) {
             }
         }
     }
 
-    public void send_packet() {
-        do {
+    public void wait_for_finish() {
+        while (true) {
             update_status();
-        } while (status != STATUS_OK);
+            if (status == STATUS_FINISH) {
+                break;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ex) {
+            }
+        }
+    }
+
+    private boolean send_complete_packets() {
+        if (buffer.length() < PAYLOAD_LENGTH) {
+            return false;
+        }
+        while (buffer.length() >= PAYLOAD_LENGTH) {
+            wait_for_ok();
+            create_packet(buffer.subSequence(0, PAYLOAD_LENGTH));
+            buffer.delete(0, PAYLOAD_LENGTH);
+            send_packet();
+        }
+        return true;
+    }
+
+    private boolean send_incomplete_packets() {
+        if (buffer.length() == 0) {
+            return false;
+        }
+        if (buffer.length() < PAYLOAD_LENGTH) {
+            wait_for_ok();
+            create_packet(buffer.subSequence(0, buffer.length()));
+            buffer.delete(0, buffer.length());
+            send_packet();
+        }
+        return true;
+    }
+
+    private void send_packet() {
         do {
             transmit_packet();
             update_status();
         } while (status != STATUS_OK);
     }
-    
-    public void transmit_packet() {
-        System.out.println("send packet");
+
+    private void transmit_packet() {
         transfered.clear();
-        if (handle == null) {
-            throw new LibUsbException("Handle not set", 0);
-        }
         int results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, packet, transfered, 500L);
         if (results < LibUsb.SUCCESS) {
-            //throw new LibUsbException("Data move failed.", results);
-            System.out.print("send results " + results);
+            throw new LibUsbException("Data move failed.", results);
         }
-        System.out.println("" + transfered.get(0));
-        System.out.println("Sent");
     }
-    
-    public void update_status() {
-        if (handle == null) {
-            throw new LibUsbException("Handle not set", 0);
-        }
+
+    private void update_status() {
         transfered.clear();
-        hello.put(0,(byte)160);
+        request_status.put(0, (byte) 160);
         int results = 0;
-        do {
-            results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, hello, transfered, 500L);
-            try {
-                Thread.sleep(10);
-            } catch(Exception e) { }
-        } while (results != LibUsb.SUCCESS);
-        
+        results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, request_status, transfered, 500L);
         if (results < LibUsb.SUCCESS) {
             throw new LibUsbException("Data move failed.", results);
         }
-        
+
         ByteBuffer read_buffer = ByteBuffer.allocateDirect(6);
         results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_READ, read_buffer, transfered, 500L);
-        
         if (results < LibUsb.SUCCESS) {
             throw new LibUsbException("Data move failed.", results);
         }
-        
+
         if (transfered.get(0) == 6) {
             byte_0 = read_buffer.get(0) & 0xFF;
             status = read_buffer.get(1) & 0xFF;
@@ -156,74 +263,12 @@ public class K40Usb {
             byte_4 = read_buffer.get(4) & 0xFF;
             byte_5 = read_buffer.get(5) & 0xFF;
         }
-        else {
-            throw new LibUsbException("Weird.", results);
-        }
-        
-        System.out.println(read_buffer);
-        System.out.println("" + transfered.get(0));
-        try { while (true) { System.out.print((read_buffer.get() & 0xFF) + " "); } } catch (Exception e) {System.out.println("");}
-        System.out.println("Read Finished.");
-        
-    }
-    
-    public void get_interupt() {
-        System.out.println("Start Read Interupt");
-        transfered.clear();
-        if (handle == null) {
-            throw new LibUsbException("Handle not set", 0);
-        }
-    
-        ByteBuffer read_buffer = ByteBuffer.allocateDirect(32);
-        int results = LibUsb.interruptTransfer(handle, K40_ENDPOINT_READ_I, read_buffer, transfered, 500L);
-        
-        if (results < LibUsb.SUCCESS) {
-            //throw new LibUsbException("Data move failed.", results);
-            System.out.print("get results " + results);
-        }
-        
-        System.out.println(read_buffer);
-        System.out.println("" + transfered.get(0));
-        System.out.println("Read Finished.");        
     }
 
-    public void flush() {
-        send_complete_packets();
-        if (buffer.length() < PACKET_SIZE) {
-            create_packet(buffer.subSequence(0, buffer.length()));
-            buffer.delete(0, buffer.length());
-            send_packet();
-        }
-    }
-
-    public void open() throws LibUsbException {
-        System.out.println("Opened.");
-        openContext();
-        findK40();
-        openHandle();
-        checkConfig();
-        detatchIfNeeded();
-        claimInterface();
-        LibUsb.controlTransfer(handle, (byte)64, (byte)177, (short)258, (short)0, packet, 50);
-    }
-
-    public void close() {
-        try {
-            flush();
-        } catch (LibUsbException e) {
-            //Could still need to dispatch resources.
-        }
-        releaseInterface();
-        closeHandle();
-        if (kernel_detached) {
-            reattachIfNeeded();
-        }
-        closeContext();
-        System.out.println("Closed.");
-    }
-
-    public void findK40() throws LibUsbException {
-        System.out.println("Finding.()");
+    //************************
+    //USB Functions.
+    //************************
+    private void findK40() throws LibUsbException {
         DeviceList list = new DeviceList();
         try {
             int results;
@@ -248,35 +293,30 @@ public class K40Usb {
         throw new LibUsbException("Device was not found.", 0);
     }
 
-    public void openContext() throws LibUsbException {
-        System.out.println("openContext()");
+    private void openContext() throws LibUsbException {
         context = new Context();
         int results = LibUsb.init(context);
-        System.out.println(results);
 
         if (results < LibUsb.SUCCESS) {
             throw new LibUsbException("Could not initialize.", results);
         }
     }
 
-    public void closeContext() {
-        System.out.println("closedContext()");
+    private void closeContext() {
         if (context != null) {
             LibUsb.exit(context);
             context = null;
         }
     }
 
-    public void closeHandle() {
-        System.out.println("closeHandle()");
+    private void closeHandle() {
         if (handle != null) {
             LibUsb.close(handle);
             handle = null;
         }
     }
 
-    public void openHandle() {
-        System.out.println("openHandle()");
+    private void openHandle() {
         handle = new DeviceHandle();
         int results = LibUsb.open(device, handle);
         if (results < LibUsb.SUCCESS) {
@@ -284,23 +324,20 @@ public class K40Usb {
         }
     }
 
-    public void claimInterface() {
-        System.out.println("claimedInterface()");
+    private void claimInterface() {
         int results = LibUsb.claimInterface(handle, interface_number);
         if (results < LibUsb.SUCCESS) {
             throw new LibUsbException("Could not claim the interface.", results);
         }
     }
 
-    public void releaseInterface() {
-        System.out.println("releasedInterface");
+    private void releaseInterface() {
         if (handle != null) {
             LibUsb.releaseInterface(handle, interface_number);
         }
     }
 
-    public void detatchIfNeeded() {
-        System.out.println("detatch()");
+    private void detatchIfNeeded() {
         if (LibUsb.hasCapability(LibUsb.CAP_SUPPORTS_DETACH_KERNEL_DRIVER)
                 && LibUsb.kernelDriverActive(handle, interface_number) != 0) {
             int results = LibUsb.detachKernelDriver(handle, interface_number);
@@ -311,8 +348,7 @@ public class K40Usb {
         }
     }
 
-    public void reattachIfNeeded() {
-        System.out.println("attach()");
+    private void reattachIfNeeded() {
         int results = LibUsb.attachKernelDriver(handle, interface_number);
         if (results < LibUsb.SUCCESS) {
             throw new LibUsbException("Could not reattach kernel driver", results);
@@ -320,8 +356,7 @@ public class K40Usb {
         kernel_detached = false;
     }
 
-    public void checkConfig() {
-                System.out.println("checkConfig()");
+    private void checkConfig() {
         ConfigDescriptor config = new ConfigDescriptor();
         int results = LibUsb.getActiveConfigDescriptor(device, config);
         if (results < LibUsb.SUCCESS) {
@@ -330,8 +365,26 @@ public class K40Usb {
         Interface iface = config.iface()[0];
         InterfaceDescriptor setting = iface.altsetting()[0];
         interface_number = setting.bInterfaceNumber();
-        System.out.println(config);
         LibUsb.freeConfigDescriptor(config);
+    }
+
+    /*
+    
+    This is a valid endpoint, but I don't know what it should actually do.
+    
+    This shouldn't be called.
+    
+     */
+    private void get_interupt() {
+        transfered.clear();
+        ByteBuffer read_buffer = ByteBuffer.allocateDirect(32);
+        int results = LibUsb.interruptTransfer(handle, K40_ENDPOINT_READ_I, read_buffer, transfered, 500L);
+        if (results == LibUsb.ERROR_TIMEOUT) {
+            return;
+        }
+        if (results < LibUsb.SUCCESS) {
+            throw new LibUsbException("Data move failed.", results);
+        }
     }
 
 }
