@@ -9,25 +9,42 @@ package jk40;
  *
  * @author Tat
  */
-public class MockUsb {
+public class MockUsb implements BaseUsb {
 
-    void open() {
+    private void sleep(int time) {
+        try {
+            Thread.sleep(time);
+        } catch (InterruptedException ex) {
+        }
+    }
+    
+    @Override
+    public void open() {
+        sleep(1000);
         System.out.println("Mock Usb Connected.");
     }
 
-    void close() {
+    @Override
+    public void close() {
+        sleep(1000);
         System.out.println("Mock Usb Disconnected.");
     }
 
-    void wait_for_ok() {
+    @Override
+    public void wait_for_ok() {
+        sleep(20);
         System.out.println("Mock Usb: OKAY!");
     }
 
-    void send_packet(CharSequence subSequence) {
+    @Override
+    public void send_packet(CharSequence subSequence) {
+        sleep(100);
         System.out.println("Mock Packst Sent:" + subSequence);
     }
 
-    void wait_for_finish() {
+    @Override
+    public void wait_for_finish() {
+        sleep(4000);
         System.out.println("Mock Usb: Finished");
     }
 

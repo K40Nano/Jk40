@@ -11,8 +11,9 @@ package jk40;
  */
 public class K40Device {
 
-    private static final int DEFAULT = 0;
-    private static final int COMPACT = 1;
+    private static final int UNINIT = 0;
+    private static final int DEFAULT = 1;
+    private static final int COMPACT = 2;
 
     static final char LASER_ON = 'D';
     static final char LASER_OFF = 'U';
@@ -26,15 +27,15 @@ public class K40Device {
     K40Queue jobber;
     private StringBuilder builder = new StringBuilder();
 
-    private int mode = DEFAULT;
+    private int mode = UNINIT;
 
     private boolean is_top = false;
     private boolean is_left = false;
     private boolean is_on = false;
-    private boolean is_compact = false;
 
     private double speed = 30;
     private double power = 1;
+    private String board = "M2";
 
     private int x = 0;
     private int y = 0;
@@ -55,9 +56,17 @@ public class K40Device {
 
     void setSpeed(double mm_per_second) {
         if (mode == COMPACT) {
-            mode_to_default();
+            exit_compact_mode();
         }
         speed = mm_per_second;
+    }
+
+    public String getBoard() {
+        return board;
+    }
+
+    public void setBoard(String board) {
+        this.board = board;
     }
 
     void send() {
@@ -73,8 +82,9 @@ public class K40Device {
 
     void move_relative(int dx, int dy) {
         if (mode != DEFAULT) {
-            mode_to_default();
+            exit_compact_mode();
         }
+        check_init();
         this.x += dx;
         this.y += dy;
         encode_default_move(dx, dy);
@@ -88,8 +98,9 @@ public class K40Device {
     }
 
     void cut_relative(int dx, int dy) {
+        check_init();
         if (mode != COMPACT) {
-            mode_to_compact();
+            start_compact_mode();
         }
         this.x += dx;
         this.y += dy;
@@ -98,19 +109,23 @@ public class K40Device {
         send();
     }
 
-    void mode_to_default() {
-        if (mode == DEFAULT) {
-            return;
+    void check_init() { 
+        if (mode == UNINIT) {
+            builder.append('I');
+            mode = DEFAULT;
         }
+    }
+    void exit_compact_mode() {
         if (mode == COMPACT) {
-            builder.append("FNSE");
+            builder.append("FNSE-\n");
             send();
-            jobber.wait_for_finish();
+            is_on = false;
+            mode = UNINIT;
         }
-        mode = DEFAULT;
     }
 
-    void mode_to_compact() {
+    void start_compact_mode() {
+        check_init();
         if (mode == COMPACT) {
             return;
         }
@@ -136,16 +151,16 @@ public class K40Device {
 
     void execute() {
         if (mode == COMPACT) {
-            mode_to_default();
+            exit_compact_mode();
         }
         jobber.execute();
     }
 
     void encode_default_move(int dx, int dy) {
-        builder.append("I");
         move_x(dx);
         move_y(dy);
-        builder.append("S1P");
+        builder.append("S1P\n");
+        mode = UNINIT;
     }
 
     void encode_speed(double speed) {
@@ -230,15 +245,19 @@ public class K40Device {
         if (dy < 0) {
             dy = -dy;
             stepy = -1;
+            set_top();
         } else {
             stepy = 1;
+            set_bottom();
         }
 
         if (dx < 0) {
             dx = -dx;
             stepx = -1;
+            set_left();
         } else {
             stepx = 1;
+            set_right();
         }
         int straight = 0;
         int diagonal = 0;
@@ -253,11 +272,13 @@ public class K40Device {
                     fraction -= dx;                                // same as fraction -= 2*dx
                     if (straight != 0) {
                         move_x(straight);
+                        straight = 0;
                     }
                     diagonal++;
                 } else {
                     if (diagonal != 0) {
                         move_diagonal(diagonal);
+                        diagonal = 0;
                     }
                     straight += stepx;
                 }
@@ -266,6 +287,7 @@ public class K40Device {
             }
             if (straight != 0) {
                 move_x(straight);
+                straight = 0;
             }
         } else {
             dy <<= 1;                                                  // dy is now 2*dy
@@ -276,12 +298,14 @@ public class K40Device {
                     x0 += stepx;
                     fraction -= dy;
                     if (straight != 0) {
-                        move_x(straight);
+                        move_y(straight);
+                        straight = 0;
                     }
                     diagonal++;
                 } else {
                     if (diagonal != 0) {
                         move_diagonal(diagonal);
+                        diagonal = 0;
                     }
                     straight += stepy;
                 }
@@ -290,10 +314,12 @@ public class K40Device {
             }
             if (straight != 0) {
                 move_y(straight);
+                straight = 0;
             }
         }
         if (diagonal != 0) {
             move_diagonal(diagonal);
+            diagonal = 0;
         }
     }
 
@@ -316,14 +342,15 @@ public class K40Device {
     }
 
     //TODO: Expand this to support other boards and gearing codes. Only M2 currently.
-    public static final String getSpeed(double mm_per_second) {
+    public String getSpeed(double mm_per_second) {
         mm_per_second = validateSpeed(mm_per_second);
         double b = 5120.0;
         double m = 11148.0;
         return getSpeed(mm_per_second, m, b, 1, true);
     }
 
-    static final String getSpeed(double mm_per_second, double m, double b, int gear, boolean expanded) {
+    //TODO: Use suffix C mode for boards that support it.
+    String getSpeed(double mm_per_second, double m, double b, int gear, boolean expanded) {
         double frequency_kHz = mm_per_second / 25.4;
         double period_in_ms = 1.0 / frequency_kHz;
         double period_value = (m * period_in_ms) + b;
@@ -347,7 +374,7 @@ public class K40Device {
     }
 
     //TODO: Validate the speeds.
-    static final double validateSpeed(double s) {
+    double validateSpeed(double s) {
         return s;
     }
 

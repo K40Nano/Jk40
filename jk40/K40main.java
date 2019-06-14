@@ -3,16 +3,17 @@ package jk40;
 public class K40main {
 
     public static void main(String[] args) {
-        K40Encoder p = new K40Encoder();
+        K40Device p = new K40Device();
         p.open();
-        p.lineToPoint(0,512);
-        p.lineToPoint(512,512);
-        p.lineToPoint(512, 0);
-        p.lineToPoint(0, 0);
-        p.executeJob();
-        p.lineToPoint(50, 50);
-        p.moveToPoint(100, 100);
-        p.executeJob();
+        //p.move_absolute(1, 1);
+        p.cut_absolute(50, 25);
+        p.cut_absolute(100, 100);
+        p.cut_absolute(50, 50);
+        p.move_absolute(0, 0);
+        p.move_absolute(50, 50);
+        p.move_absolute(0, 0);
+        p.cut_absolute(100, 100);
+        p.execute();
         p.close();
         System.out.println("Main thread has ended.");
     }

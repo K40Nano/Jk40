@@ -29,7 +29,7 @@ wait_for_ok() : wait until the state is STATUS_OK
 */
 
 
-public class K40Usb {
+public class K40Usb implements BaseUsb {
 
     public static final int K40VENDERID = 0x1A86;
     public static final int K40PRODUCTID = 0x5512;
@@ -72,7 +72,7 @@ public class K40Usb {
      * https://lentz.com.au/blog/calculating-crc-with-a-tiny-32-entry-lookup-table
      * *******************
      */
-    static final int[] CRC_TABLE = new int[]{
+    final int[] CRC_TABLE = new int[]{
         0x00, 0x5E, 0xBC, 0xE2, 0x61, 0x3F, 0xDD, 0x83,
         0xC2, 0x9C, 0x7E, 0x20, 0xA3, 0xFD, 0x1F, 0x41,
         0x00, 0x9D, 0x23, 0xBE, 0x46, 0xDB, 0x65, 0xF8,
@@ -89,6 +89,7 @@ public class K40Usb {
     }
     //*//
 
+    @Override
     public void open() throws LibUsbException {
         openContext();
         findK40();
@@ -99,6 +100,7 @@ public class K40Usb {
         LibUsb.controlTransfer(handle, (byte) 64, (byte) 177, (short) 258, (short) 0, packet, 50);
     }
 
+    @Override
     public void close() throws LibUsbException {
         releaseInterface();
         closeHandle();
@@ -108,6 +110,7 @@ public class K40Usb {
         closeContext();
     }
 
+    @Override
     public void send_packet(CharSequence cs) {
         if (cs.length() != PAYLOAD_LENGTH) {
             throw new LibUsbException("Packets must be exactly " + PAYLOAD_LENGTH + " bytes.",0);
@@ -135,7 +138,7 @@ public class K40Usb {
         transfered.clear();
         int results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, packet, transfered, 500L);
         if (results < LibUsb.SUCCESS) {
-            throw new LibUsbException("Data move failed.", results);
+            throw new LibUsbException("Packet Send Failed.", results);
         }
     }
 
@@ -145,13 +148,13 @@ public class K40Usb {
         int results;
         results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, request_status, transfered, 500L);
         if (results < LibUsb.SUCCESS) {
-            throw new LibUsbException("Data move failed.", results);
+            throw new LibUsbException("Status Request Failed.", results);
         }
 
         ByteBuffer read_buffer = ByteBuffer.allocateDirect(6);
         results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_READ, read_buffer, transfered, 500L);
         if (results < LibUsb.SUCCESS) {
-            throw new LibUsbException("Data move failed.", results);
+            throw new LibUsbException("Status Update Failed", results);
         }
 
         if (transfered.get(0) == 6) {
@@ -164,10 +167,12 @@ public class K40Usb {
         }
     }
 
+    @Override
     public void wait_for_finish() {
         wait(STATUS_FINISH);
     }
 
+    @Override
     public void wait_for_ok() {
         wait(STATUS_OK);
     }
