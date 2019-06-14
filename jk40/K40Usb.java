@@ -27,6 +27,8 @@ send_packet(data) : sends 30 bytes of payload to the device.
 wait_for_finish() : wait until the state is STATUS_FINISH.
 wait_for_ok() : wait until the state is STATUS_OK
 */
+
+
 public class K40Usb {
 
     public static final int K40VENDERID = 0x1A86;
