@@ -1,38 +1,17 @@
 # Jk40
 
 K40 java support from scratch.
-
 (Needs some testing, might work).
+Synch and Asynch support. Asynch hasn't been tested yet.
 
-Synch and Asynch support. Stores basic information about the current queue being processed which can be called if working in async mode.
+The K40Usb class is does connections to through the Usb device, crc generation and packet resending on failure, and verifies the states is correct and sends 30 byte packets to the machine.
+* open()
+* close()
+* send_packet();
+* wait(), wait_for_ok(), wait_for_finished();
 
-* send(LHYMICRO-GL): Adds LHYMICRO-GL code to the queue for processing.
-* process(LHYMICRO-GL): Adds a padded packet for immediate sending. 
-* flush(): (blocking) sends all pending packets
-* open(): (blocking) opens the channel to the device.
-* close(): (blocking) closes the channel to the device.
-* start(): run the queue processor in asynch mode.
-* shutdown(): stop the queue processor.
-* size(): give the current size of the standing queue.
-* wait_for_finish(): wait until the status finish flag is sent.
+The K40Queue queues up a bunch of micro jobs. These can be the two things the machine does, sending packets, or waiting for it to finish. Both are encoded in Strings. These can be added ad infinitum, to queue up any sized job. Also, the commands do not need to be concatinated. It will do this itself when it puts them into the buffer. Neither the queue or buffer need to be run at all. The wait for finish is encoded as a null string, but it might be better to simply encode it as a carriage return "\n" or some other character. But, then there'd be no method of telling static move commands I<Direction><Distance>S1P commands from other methods. These are usually not done in EGV files rather opting to string all commands through resets and only using one job file.
 
-Still a few things worth looking into. And this will still require some understanding of how the underlying protocols work. The wait_for_finish routine is quite problematic. Because rather than just feed everything in the queue constantly into the USB with resends etc, it requires that the queue be generally finished because you can't necessarily jump from a speedcode compact mode to a different speedcode without jobification. And there's something clear to the idea of doing this at the same level as the rest of this. This would allow for setting the speed to something else on the fly without telling anybody about the compact mode etc.
+The K40Device builds LHYMICRO-GL code and tracks the machine state. It takes a bunch of easy commands that end up producing these codes. It allows for two modes, default and compact. It does not use the reset methodology, opting instead to finish each time it performs a move. It resets the speed each time. It does not allow for non-laser cut moves at speed. 
 
-Goals
----
-
-Ideally this should allow:
-
-* set_speed(v);
-* move(x,y)
-* up()
-* down()
-* home()
-* lock()
-* unlock()
-* pause()
-* resume()
-
-And a bunch of state queries, like how large is the current queue, where is the laser location, which job is it currently on, etc.
-
-And this likely still needs porting to C++ so it needs to be kept simple, so thinking before acting is better.
+The current goal for this project is to add this functionality to https://github.com/t-oster/LibLaserCut or something similar as a proof of concept. 
