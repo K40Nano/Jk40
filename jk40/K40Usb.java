@@ -1,7 +1,6 @@
 package jk40;
 
 //MIT License.
-
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import org.usb4java.Context;
@@ -16,19 +15,20 @@ import org.usb4java.LibUsb;
 import org.usb4java.LibUsbException;
 
 /*
-K40Usb is the core driver for communcating with the K40 Stock Nano board.
-It will process the USB interfacing claim and perform background operations to
-support the protocol required.
+* K40Usb is the core driver for communcating with the K40 Stock Nano board.
+* It will process the USB interfacing claim and perform background operations to
+* support the protocol required.
 
-The only commands you should need are:
-open() : Opens connection, initializes the device.
-close() : Closes connection.
-send_packet(data) : sends 30 bytes of payload to the device. 
-wait_for_finish() : wait until the state is STATUS_FINISH.
-wait_for_ok() : wait until the state is STATUS_OK
-*/
+* The only commands you should need are:
 
+* open() : Opens connection, initializes the device.
+* close() : Closes connection.
 
+* send_packet(data) : sends exactly 30 bytes of payload to the device. 
+
+* wait_for_finish() : wait until the state is STATUS_FINISH.
+* wait_for_ok() : wait until the state is STATUS_OK
+ */
 public class K40Usb implements BaseUsb {
 
     public static final int K40VENDERID = 0x1A86;
@@ -66,8 +66,7 @@ public class K40Usb implements BaseUsb {
 
     /**
      * ******************
-     * CRC function via:
-     * License: 2-clause "simplified" BSD license Copyright
+     * CRC function via: License: 2-clause "simplified" BSD license Copyright
      * (C) 1992-2017 Arjen Lentz
      * https://lentz.com.au/blog/calculating-crc-with-a-tiny-32-entry-lookup-table
      * *******************
@@ -113,7 +112,7 @@ public class K40Usb implements BaseUsb {
     @Override
     public void send_packet(CharSequence cs) {
         if (cs.length() != PAYLOAD_LENGTH) {
-            throw new LibUsbException("Packets must be exactly " + PAYLOAD_LENGTH + " bytes.",0);
+            throw new LibUsbException("Packets must be exactly " + PAYLOAD_LENGTH + " bytes.", 0);
         }
         create_packet(cs);
         do {
@@ -136,35 +135,53 @@ public class K40Usb implements BaseUsb {
 
     private void transmit_packet() {
         transfered.clear();
-        int results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, packet, transfered, 500L);
+        int results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, packet, transfered, 2000L);
         if (results < LibUsb.SUCCESS) {
             throw new LibUsbException("Packet Send Failed.", results);
         }
     }
+    private void update_status()
+    {
+      int results;
 
-    private void update_status() {
-        transfered.clear();
-        request_status.put(0, (byte) 160);
-        int results;
-        results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, request_status, transfered, 500L);
-        if (results < LibUsb.SUCCESS) {
-            throw new LibUsbException("Status Request Failed.", results);
-        }
+      transfered.clear();
+      request_status.put(0, (byte) 160);
+      results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_WRITE, request_status, transfered, 2000L);
 
-        ByteBuffer read_buffer = ByteBuffer.allocateDirect(6);
-        results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_READ, read_buffer, transfered, 500L);
-        if (results < LibUsb.SUCCESS) {
-            throw new LibUsbException("Status Update Failed", results);
-        }
+      if (results < LibUsb.SUCCESS)
+      {
+        throw new LibUsbException("Status Request Failed.", results);
 
-        if (transfered.get(0) == 6) {
-            byte_0 = read_buffer.get(0) & 0xFF;
-            status = read_buffer.get(1) & 0xFF;
-            byte_2 = read_buffer.get(2) & 0xFF;
-            byte_3 = read_buffer.get(3) & 0xFF;
-            byte_4 = read_buffer.get(4) & 0xFF;
-            byte_5 = read_buffer.get(5) & 0xFF;
-        }
+      }
+
+      ByteBuffer read_buffer = ByteBuffer.allocateDirect(6);
+      results = LibUsb.bulkTransfer(handle, K40_ENDPOINT_READ, read_buffer, transfered, 2000L);
+      if (results < LibUsb.SUCCESS)
+      {
+        throw new LibUsbException("Status Update Failed", results);
+      }
+
+      if (transfered.get(0) == 6)
+      {
+        int next_0 = read_buffer.get(0) & 0xFF;
+        int next_1 = read_buffer.get(1) & 0xFF;
+        int next_2 = read_buffer.get(2) & 0xFF;
+        int next_3 = read_buffer.get(3) & 0xFF;
+        int next_4 = read_buffer.get(4) & 0xFF;
+        int next_5 = read_buffer.get(5) & 0xFF;
+
+        /*
+        //Other than byte 1 being status these aren't known. They change
+        //sometimes, but what they mean is somewhat mysterious.
+        //System.out.println(String.format("%d %d %d %d %d %d", next_0, next_1, next_2, next_3, next_4, next_5));
+        */
+        byte_0 = next_0;
+        status = next_1;
+        byte_2 = next_2;
+        byte_3 = next_3;
+        byte_4 = next_4;
+        byte_5 = next_5;
+      }
     }
 
     @Override
@@ -294,11 +311,8 @@ public class K40Usb implements BaseUsb {
     }
 
     /*
-    
     This is a valid endpoint, but I don't know what it should actually do.
-    
     This shouldn't be called.
-    
      */
     private void get_interupt() {
         transfered.clear();

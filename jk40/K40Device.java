@@ -1,13 +1,10 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jk40;
+
+import java.util.Collections;
+import java.util.List;
 
 /**
  *
- * @author Tat
  */
 public class K40Device {
 
@@ -24,7 +21,7 @@ public class K40Device {
     static final char BOTTOM = 'R';
     static final char DIAGONAL = 'M';
 
-    K40Queue jobber;
+    K40Queue queue;
     private StringBuilder builder = new StringBuilder();
 
     private int mode = UNINIT;
@@ -33,32 +30,26 @@ public class K40Device {
     private boolean is_left = false;
     private boolean is_on = false;
 
-    private double speed = 30;
-    private double power = 1;
     private String board = "M2";
+    private double speed = 30;
+    private int raster_step = 1;
+    double d_ratio = 0.2612;
 
     private int x = 0;
     private int y = 0;
 
     void open() {
-        jobber = new K40Queue();
-        jobber.open();
+        queue = new K40Queue();
+        queue.open();
     }
 
     void close() {
-        jobber.close();
-        jobber = null;
-    }
-
-    void setPower(double power) {
-        this.power = power;
-    }
-
-    void setSpeed(double mm_per_second) {
         if (mode == COMPACT) {
             exit_compact_mode();
+            execute();
         }
-        speed = mm_per_second;
+        queue.close();
+        queue = null;
     }
 
     public String getBoard() {
@@ -69,9 +60,61 @@ public class K40Device {
         this.board = board;
     }
 
+    void setSpeed(double mm_per_second) {
+        if (mode == COMPACT) {
+            exit_compact_mode();
+        }
+        speed = mm_per_second;
+    }
+
+    public int getRaster_step() {
+        return raster_step;
+    }
+
+    public void setRaster_step(int raster_step) {
+        if (raster_step > 64) {
+            raster_step = 64;
+        }
+        if (raster_step < 1) {
+            raster_step = 1;
+        }
+        this.raster_step = raster_step;
+    }
+
+    public double getD_ratio() {
+        return d_ratio;
+    }
+
+    public void setD_ratio(double d_ratio) {
+        this.d_ratio = d_ratio;
+    }
+
     void send() {
-        jobber.add(builder.toString());
+        queue.add(builder.toString());
         builder.delete(0, builder.length());
+    }
+
+    void home() {
+        exit_compact_mode();
+        builder.append("IPP\n");
+        send();
+        mode = UNINIT;
+        x = 0;
+        y = 0;
+    }
+
+    void unlock_rail() {
+        exit_compact_mode();
+        builder.append("IS2P\n");
+        send();
+        mode = UNINIT;
+    }
+
+    void lock_rail() {
+        exit_compact_mode();
+        builder.append("IS1P\n");
+        send();
+        mode = UNINIT;
     }
 
     void move_absolute(int x, int y) {
@@ -81,13 +124,13 @@ public class K40Device {
     }
 
     void move_relative(int dx, int dy) {
-        if (mode != DEFAULT) {
-            exit_compact_mode();
-        }
         check_init();
-        this.x += dx;
-        this.y += dy;
-        encode_default_move(dx, dy);
+        laser_off();
+        if (mode == DEFAULT) {
+            encode_default_move(dx, dy);
+        } else {
+            makeLine(0, 0, dx, dy);
+        }
         send();
     }
 
@@ -102,19 +145,96 @@ public class K40Device {
         if (mode != COMPACT) {
             start_compact_mode();
         }
-        this.x += dx;
-        this.y += dy;
         laser_on();
         makeLine(0, 0, dx, dy);
         send();
     }
 
-    void check_init() { 
+    void raster_start() {
+        laser_off();
+        check_init();
+        if (mode == COMPACT) {
+            exit_compact_mode();
+        }
+        builder.append(getSpeed(speed, true));
+        builder.append('N');
+        builder.append(BOTTOM);
+        builder.append(RIGHT);
+        builder.append("S1E");
+        is_top = false;
+        is_left = false;
+        mode = COMPACT;
+    }
+
+    void raster_end() {
+        exit_compact_mode();
+    }
+
+    void scanline_raster(List<Byte> bytes, boolean reversed) {
+        if (!reversed) {
+            int count = 0;
+            for (Byte b : bytes) {
+                for (int i = 0; i < 8; i++) {
+                    if (((b >> i) & 1) == 1) {
+                        if (is_on) {
+                            count++;
+                        } else {
+                            move_x(count);
+                            laser_on();
+                            count = 1;
+                        }
+                    } else {
+                        if (!is_on) {
+                            count++;
+                        } else {
+                            move_x(count);
+                            laser_off();
+                            count = 1;
+                        }
+                    }
+                }
+            }
+            builder.append(LEFT);
+            is_on = false;
+            y += raster_step;
+        } else {
+            int count = 0;
+            Collections.reverse(bytes);
+            for (Byte b : bytes) {
+                for (int i = 7; i >= 0; i--) {
+                    if (((b >> i) & 1) == 1) {
+                        if (is_on) {
+                            count++;
+                        } else {
+                            move_x(-count);
+                            laser_on();
+                            count = 1;
+                        }
+                    } else {
+                        if (!is_on) {
+                            count++;
+                        } else {
+                            move_x(-count);
+                            laser_off();
+                            count = 1;
+                        }
+                    }
+                }
+            }
+            builder.append(RIGHT);
+            is_on = false;
+            y += raster_step;
+        }
+        send();
+    }
+
+    void check_init() {
         if (mode == UNINIT) {
             builder.append('I');
             mode = DEFAULT;
         }
     }
+
     void exit_compact_mode() {
         if (mode == COMPACT) {
             builder.append("FNSE-\n");
@@ -143,17 +263,13 @@ public class K40Device {
                 builder.append(RIGHT);
             }
             builder.append("S1E");
-            is_top = false;
-            is_left = false;
         }
         mode = COMPACT;
     }
 
     void execute() {
-        if (mode == COMPACT) {
-            exit_compact_mode();
-        }
-        jobber.execute();
+        queue.execute();
+
     }
 
     void encode_default_move(int dx, int dy) {
@@ -167,31 +283,43 @@ public class K40Device {
         builder.append(getSpeed(speed));
     }
 
-    void move_x(int x) {
-        if (0 < x) {
+    void move_x(int dx) {
+        if (0 < dx) {
             builder.append(RIGHT);
             is_left = false;
         } else {
             builder.append(LEFT);
             is_left = true;
         }
-        distance(Math.abs(x));
+        distance(Math.abs(dx));
+        this.x += dx;
     }
 
-    void move_y(int y) {
-        if (0 < y) {
+    void move_y(int dy) {
+        if (0 < dy) {
             builder.append(BOTTOM);
             is_top = false;
         } else {
             builder.append(TOP);
             is_top = true;
         }
-        distance(Math.abs(y));
+        distance(Math.abs(dy));
+        this.y += dy;
     }
 
     void move_diagonal(int v) {
         builder.append(DIAGONAL);
         distance(Math.abs(v));
+        if (is_top) {
+            this.y -= v;
+        } else {
+            this.y += v;
+        }
+        if (is_left) {
+            this.x -= v;
+        } else {
+            this.x += v;
+        }
     }
 
     void set_top() {
@@ -233,7 +361,7 @@ public class K40Device {
         if (is_on) {
             builder.append(LASER_OFF);
         }
-        is_on = true;
+        is_on = false;
     }
 
     void makeLine(int x0, int y0, int x1, int y1) {
@@ -263,13 +391,13 @@ public class K40Device {
         int diagonal = 0;
 
         if (dx > dy) {
-            dy <<= 1;                                                  // dy is now 2*dy
+            dy <<= 1;// dy is now 2*dy
             dx <<= 1;
-            int fraction = dy - (dx >> 1);                         // same as 2*dy - dx
+            int fraction = dy - (dx >> 1);// same as 2*dx - dy
             while (x0 != x1) {
                 if (fraction >= 0) {
                     y0 += stepy;
-                    fraction -= dx;                                // same as fraction -= 2*dx
+                    fraction -= dx;// same as fraction -= 2*dx
                     if (straight != 0) {
                         move_x(straight);
                         straight = 0;
@@ -283,15 +411,17 @@ public class K40Device {
                     straight += stepx;
                 }
                 x0 += stepx;
-                fraction += dy;                                    // same as fraction += 2*dy
+                fraction += dy;// same as fraction += 2*dy
             }
             if (straight != 0) {
                 move_x(straight);
-                straight = 0;
+            }
+            if (diagonal != 0) {
+                move_diagonal(diagonal);
             }
         } else {
-            dy <<= 1;                                                  // dy is now 2*dy
-            dx <<= 1;                                                  // dx is now 2*dx
+            dy <<= 1;
+            dx <<= 1;
             int fraction = dx - (dy >> 1);
             while (y0 != y1) {
                 if (fraction >= 0) {
@@ -314,16 +444,13 @@ public class K40Device {
             }
             if (straight != 0) {
                 move_y(straight);
-                straight = 0;
             }
-        }
-        if (diagonal != 0) {
-            move_diagonal(diagonal);
-            diagonal = 0;
+            if (diagonal != 0) {
+                move_diagonal(diagonal);
+            }
         }
     }
 
-    //TODO: needs rechecking.
     public void distance(int v) {
         if (v >= 255) {
             int z_count = v / 255;
@@ -332,39 +459,194 @@ public class K40Device {
                 builder.append("z");
             }
         }
-        if (v > 53) {
+        if (v > 51) {
             builder.append(String.format("%03d", v));
+            return;
         } else if (v > 25) {
-            builder.append('|').append((char) ('a' + (v - 26)));
-        } else if (v > 0) {
+            builder.append('|');
+            v -= 25;
+        }
+        if (v > 0) {
             builder.append((char) ('a' + (v - 1)));
         }
     }
 
-    //TODO: Expand this to support other boards and gearing codes. Only M2 currently.
-    public String getSpeed(double mm_per_second) {
-        mm_per_second = validateSpeed(mm_per_second);
-        double b = 5120.0;
-        double m = 11148.0;
-        return getSpeed(mm_per_second, m, b, 1, true);
+    public int getGear(double mm_per_second) {
+        if (mm_per_second < 7) {
+            return 0;
+        }
+        if (mm_per_second < 25.4) {
+            return 1;
+        }
+        if (mm_per_second < 60) {
+            return 2;
+        }
+        if (mm_per_second < 127) {
+            return 3;
+        }
+        return 4;
     }
 
-    //TODO: Use suffix C mode for boards that support it.
-    String getSpeed(double mm_per_second, double m, double b, int gear, boolean expanded) {
+    public int getGearRaster(double mm_per_second) {
+        if (mm_per_second < 25.4) {
+            return 1;
+        }
+        if (mm_per_second < 127) {
+            return 2;
+        }
+        if (mm_per_second < 320) {
+            return 3;
+        }
+        return 4;
+    }
+
+    public String getSpeed(double mm_per_second) {
+        return getSpeed(mm_per_second, false);
+    }
+
+    public String getSpeed(double mm_per_second, boolean raster) {
+        int gear = 1;
+        if (raster) {
+            if (mm_per_second > 500) {
+                mm_per_second = 500;
+            }
+            gear = getGearRaster(mm_per_second);
+        } else {
+            if (mm_per_second > 240) {
+                mm_per_second = 240;
+            }
+            gear = getGear(mm_per_second);
+        }
+        double b;
+        double m = 11148.0;
+        if ("M2".equals(board)) {
+            switch (gear) {
+                case 0:
+                    b = 8;
+                    m = 929.0;
+                    break;
+                default:
+                    b = 5120.0;
+                    break;
+                case 3:
+                    b = 5632.0;
+                    break;
+                case 4:
+                    b = 6144.0;
+                    break;
+            }
+            return getSpeed(mm_per_second, m, b, gear, true, raster);
+        }
+        if ("M".equals(board) || "M1".equals(board)) {
+            if (gear == 0) {
+                gear = 1;
+            }
+            m = 11148.0;
+            switch (gear) {
+                default:
+                    b = 5120.0;
+                    break;
+                case 3:
+                    b = 5632.0;
+                    break;
+                case 4:
+                    b = 6144.0;
+                    break;
+            }
+            return getSpeed(mm_per_second, m, b, gear, "M1".equals(board), raster);
+        }
+        if ("A".equals(board) || "B".equals(board) || "B1".equals(board)) {
+            if (gear == 0) {
+                gear = 1;
+            }
+            m = 11148.0;
+            switch (gear) {
+                default:
+                    b = 5120.0;
+                    break;
+                case 3:
+                    b = 5632.0;
+                    break;
+                case 4:
+                    b = 6144.0;
+                    break;
+            }
+            return getSpeed(mm_per_second, m, b, gear, true, raster);
+        }
+        if ("B2".equals(board)) {
+            m = 22296.0;
+            switch (gear) {
+                case 0:
+                    b = 784.0;
+                    m = 1858.0;
+                    break;
+                default:
+                    b = 784.0;
+                    break;
+                case 3:
+                    b = 896.0;
+                    break;
+                case 4:
+                    b = 1024.0;
+                    break;
+            }
+            return getSpeed(mm_per_second, m, b, gear, true, raster);
+        }
+        throw new UnsupportedOperationException("Board is not known.");
+    }
+
+    String getSpeed(double mm_per_second, double m, double b, int gear, boolean diagonal_code_required, boolean raster) {
+        boolean suffix_c = false;
+        if (gear == 0) {
+            gear = 1;
+            suffix_c = true;
+        }
         double frequency_kHz = mm_per_second / 25.4;
         double period_in_ms = 1.0 / frequency_kHz;
         double period_value = (m * period_in_ms) + b;
         int speed_value = 65536 - (int) Math.rint(period_value);
-        if (!expanded) {
+        if (speed_value < 0) {
+            speed_value = 0;
+        }
+        if (speed_value > 65535) {
+            speed_value = 65535;
+        }
+        if (raster) {
             return String.format(
-                    "CV%03d%03d%1d",
+                    "V%03d%03d%1dG%03d",
                     (speed_value >> 8) & 0xFF, (speed_value & 0xFF),
-                    gear);
+                    gear, raster_step);
+        }
+        if (!diagonal_code_required) {
+            if (suffix_c) {
+                return String.format(
+                        "CV%03d%03d%1dC",
+                        (speed_value >> 8) & 0xFF, (speed_value & 0xFF),
+                        gear);
+            } else {
+                return String.format(
+                        "CV%03d%03d%1d",
+                        (speed_value >> 8) & 0xFF, (speed_value & 0xFF),
+                        gear);
+            }
         }
         int step_value = (int) mm_per_second;
-        double d_ratio = 0.2612;
         double d_value = d_ratio * (m * period_in_ms) / (double) step_value;
         int diag_add = (int) d_value;
+        if (diag_add < 0) {
+            diag_add = 0;
+        }
+        if (diag_add > 65535) {
+            diag_add = 65535;
+        }
+        if (suffix_c) {
+            return String.format(
+                    "CV%03d%03d%1d%03d%03d%03dC",
+                    (speed_value >> 8) & 0xFF, (speed_value & 0xFF),
+                    gear,
+                    step_value,
+                    (diag_add >> 8) & 0xFF, (diag_add & 0xFF));
+        }
         return String.format(
                 "CV%03d%03d%1d%03d%03d%03d",
                 (speed_value >> 8) & 0xFF, (speed_value & 0xFF),
@@ -372,10 +654,4 @@ public class K40Device {
                 step_value,
                 (diag_add >> 8) & 0xFF, (diag_add & 0xFF));
     }
-
-    //TODO: Validate the speeds.
-    double validateSpeed(double s) {
-        return s;
-    }
-
 }
