@@ -39,8 +39,12 @@ public class K40Device {
     private int y = 0;
 
     void open() {
-        queue = new K40Queue();
-        queue.open();
+        open(new K40Queue());
+    }
+
+    void open(K40Queue q) {
+        queue = q;
+        q.open();
     }
 
     void close() {
@@ -124,6 +128,9 @@ public class K40Device {
     }
 
     void move_relative(int dx, int dy) {
+        if ((dx == 0) && (dy == 0)) {
+            return;
+        }
         check_init();
         laser_off();
         if (mode == DEFAULT) {
@@ -135,12 +142,16 @@ public class K40Device {
     }
 
     void cut_absolute(int x, int y) {
+
         int dx = x - this.x;
         int dy = y - this.y;
         cut_relative(dx, dy);
     }
 
     void cut_relative(int dx, int dy) {
+        if ((dx == 0) && (dy == 0)) {
+            return;
+        }
         check_init();
         if (mode != COMPACT) {
             start_compact_mode();
@@ -307,6 +318,36 @@ public class K40Device {
         this.y += dy;
     }
 
+    void move_angle(int dx, int dy) {
+        //assert(abs(dx) == abs(dy));
+        if (0 < dx) {
+            if (is_left) {
+                builder.append(RIGHT);
+            }
+            is_left = false;
+        } else {
+            if (!is_left) {
+                builder.append(LEFT);
+            }
+            is_left = true;
+        }
+        if (0 < dy) {
+            if (is_top) {
+                builder.append(BOTTOM);
+            }
+            is_top = false;
+        } else {
+            if (!is_top) {
+                builder.append(TOP);
+            }
+            is_top = true;
+        }
+        builder.append(DIAGONAL);
+        distance(Math.abs(dx));
+        this.x += dx;
+        this.y += dy;
+    }
+
     void move_diagonal(int v) {
         builder.append(DIAGONAL);
         distance(Math.abs(v));
@@ -368,24 +409,20 @@ public class K40Device {
         int dy = y1 - y0; //BRESENHAM LINE DRAW ALGORITHM
         int dx = x1 - x0;
 
-        int stepx, stepy;
+        int stepx = 0, stepy = 0;
 
         if (dy < 0) {
             dy = -dy;
             stepy = -1;
-            set_top();
         } else {
             stepy = 1;
-            set_bottom();
         }
 
         if (dx < 0) {
             dx = -dx;
             stepx = -1;
-            set_left();
         } else {
             stepx = 1;
-            set_right();
         }
         int straight = 0;
         int diagonal = 0;
@@ -405,7 +442,7 @@ public class K40Device {
                     diagonal++;
                 } else {
                     if (diagonal != 0) {
-                        move_diagonal(diagonal);
+                        move_angle(diagonal * stepx, diagonal * stepy);
                         diagonal = 0;
                     }
                     straight += stepx;
@@ -417,7 +454,7 @@ public class K40Device {
                 move_x(straight);
             }
             if (diagonal != 0) {
-                move_diagonal(diagonal);
+                move_angle(diagonal * stepx, diagonal * stepy);
             }
         } else {
             dy <<= 1;
@@ -434,7 +471,7 @@ public class K40Device {
                     diagonal++;
                 } else {
                     if (diagonal != 0) {
-                        move_diagonal(diagonal);
+                        move_angle(diagonal * stepx, diagonal * stepy);
                         diagonal = 0;
                     }
                     straight += stepy;
@@ -446,7 +483,7 @@ public class K40Device {
                 move_y(straight);
             }
             if (diagonal != 0) {
-                move_diagonal(diagonal);
+                move_angle(diagonal * stepx, diagonal * stepy);
             }
         }
     }
@@ -653,5 +690,13 @@ public class K40Device {
                 gear,
                 step_value,
                 (diag_add >> 8) & 0xFF, (diag_add & 0xFF));
+    }
+
+    private void h_switch() {
+        if (is_left) {
+            this.set_right();
+        } else {
+            this.set_left();
+        }
     }
 }

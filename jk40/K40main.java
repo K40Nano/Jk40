@@ -7,17 +7,17 @@ public class K40main {
     public static void main(String[] args) {
         K40Device p = new K40Device();
         p.open();
-        p.setSpeed(5);
-        p.move_absolute(1, 1);
-        p.cut_absolute(50, 25);
-        p.cut_absolute(100, 100);
-        p.cut_absolute(50, 50);
-        p.setSpeed(40);
-        p.move_absolute(0, 0);
-        p.move_absolute(50, 50);
-        p.move_absolute(0, 0);
-        p.cut_absolute(100, 100);
-        p.execute();
+//        p.setSpeed(5);
+//        p.move_absolute(1, 1);
+//        p.cut_absolute(50, 25);
+//        p.cut_absolute(100, 100);
+//        p.cut_absolute(50, 50);
+//        p.setSpeed(40);
+//        p.move_absolute(0, 0);
+//        p.move_absolute(50, 50);
+//        p.move_absolute(0, 0);
+//        p.cut_absolute(100, 100);
+//        p.execute();
         p.home();
         p.raster_start();
         ArrayList<Byte> bytes = new ArrayList<Byte>();
