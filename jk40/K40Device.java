@@ -344,6 +344,22 @@ public class K40Device {
         is_on = false;
     }
 
+    public void h_switch() {
+        if (is_left) {
+            this.set_right();
+        } else {
+            this.set_left();
+        }
+    }
+
+    public void v_switch() {
+        if (is_top) {
+            this.set_bottom();
+        } else {
+            this.set_top();
+        }
+    }
+
     void makeLine(int x0, int y0, int x1, int y1) {
         int dy = y1 - y0; //BRESENHAM LINE DRAW ALGORITHM
         int dx = x1 - x0;
@@ -631,11 +647,4 @@ public class K40Device {
                 (diag_add >> 8) & 0xFF, (diag_add & 0xFF));
     }
 
-    private void h_switch() {
-        if (is_left) {
-            this.set_right();
-        } else {
-            this.set_left();
-        }
-    }
 }
