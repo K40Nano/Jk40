@@ -181,64 +181,6 @@ public class K40Device {
         exit_compact_mode();
     }
 
-    void scanline_raster(List<Byte> bytes, boolean reversed) {
-        if (!reversed) {
-            int count = 0;
-            for (Byte b : bytes) {
-                for (int i = 0; i < 8; i++) {
-                    if (((b >> i) & 1) == 1) {
-                        if (is_on) {
-                            count++;
-                        } else {
-                            move_x(count);
-                            laser_on();
-                            count = 1;
-                        }
-                    } else {
-                        if (!is_on) {
-                            count++;
-                        } else {
-                            move_x(count);
-                            laser_off();
-                            count = 1;
-                        }
-                    }
-                }
-            }
-            builder.append(LEFT);
-            is_on = false;
-            y += raster_step;
-        } else {
-            int count = 0;
-            Collections.reverse(bytes);
-            for (Byte b : bytes) {
-                for (int i = 7; i >= 0; i--) {
-                    if (((b >> i) & 1) == 1) {
-                        if (is_on) {
-                            count++;
-                        } else {
-                            move_x(-count);
-                            laser_on();
-                            count = 1;
-                        }
-                    } else {
-                        if (!is_on) {
-                            count++;
-                        } else {
-                            move_x(-count);
-                            laser_off();
-                            count = 1;
-                        }
-                    }
-                }
-            }
-            builder.append(RIGHT);
-            is_on = false;
-            y += raster_step;
-        }
-        send();
-    }
-
     void check_init() {
         if (mode == UNINIT) {
             builder.append('I');
