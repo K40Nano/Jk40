@@ -1,8 +1,5 @@
 package jk40;
 
-import java.util.Collections;
-import java.util.List;
-
 /**
  *
  */
