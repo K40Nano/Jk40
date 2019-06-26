@@ -17,7 +17,7 @@ public class MockUsb implements BaseUsb {
         } catch (InterruptedException ex) {
         }
     }
-    
+
     @Override
     public void open() {
         sleep(1000);

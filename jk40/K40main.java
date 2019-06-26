@@ -11,11 +11,11 @@ public class K40main {
         p.home();
         p.raster_start();
         ArrayList<Byte> bytes = new ArrayList<Byte>();
-        bytes.add((byte)50);
-        bytes.add((byte)75);
-        bytes.add((byte)255);
-        bytes.add((byte)0);
-        bytes.add((byte)52);
+        bytes.add((byte) 50);
+        bytes.add((byte) 75);
+        bytes.add((byte) 255);
+        bytes.add((byte) 0);
+        bytes.add((byte) 52);
         p.execute();
         p.close();
         System.out.println("Main thread has ended.");
