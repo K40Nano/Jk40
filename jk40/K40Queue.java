@@ -10,7 +10,6 @@ import java.util.concurrent.LinkedBlockingQueue;
  * respectively. This permits a single stream of text data to unambiguously
  * control the laser.
  *
- *
  */
 public class K40Queue {
 

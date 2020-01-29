@@ -30,8 +30,10 @@ public class K40Device {
     private String board = "M2";
     private double speed = 30;
     private int raster_step = 1;
+    private int power = 1000;
     double d_ratio = 0.2612;
 
+    private int power_remainder = 0;
     private int x = 0;
     private int y = 0;
 
@@ -66,6 +68,10 @@ public class K40Device {
             exit_compact_mode();
         }
         speed = mm_per_second;
+    }
+
+    void setPower(int ppi) {
+        power = ppi;
     }
 
     public int getRaster_step() {
@@ -360,85 +366,84 @@ public class K40Device {
         }
     }
 
+    /*
+    * Zingl-Bresenham line draw algorithm
+    * With Tatarize's PPI carryforward power modulation.
+    * 
+    * The general goal of this is to trigger a state sync, if the laser is to
+    * change state or if the next movement is not exactly diagonal or orthogonal
+    * all other states can be combined into the same movement.
+     */
     void makeLine(int x0, int y0, int x1, int y1) {
-        int dy = y1 - y0; //BRESENHAM LINE DRAW ALGORITHM
-        int dx = x1 - x0;
+        int dx = Math.abs(x1 - x0);
+        int dy = -Math.abs(y1 - y0);
+        int sx = (x0 < x1) ? 1 : -1;
+        int sy = (y0 < y1) ? 1 : -1;
 
-        int stepx = 0, stepy = 0;
+        int err = dx + dy;  //error value e_xy
+        int cud_x = 0; //Current unapplied delta x
+        int cud_y = 0; //Current unapplied delta y
+        int pud_x = 0; //Previous unapplied delta x
+        int pud_y = 0; //Previous unapplied delta y
+        boolean laser_cutting = this.is_on;
+        boolean pulse_on = this.is_on;
 
-        if (dy < 0) {
-            dy = -dy;
-            stepy = -1;
-        } else {
-            stepy = 1;
-        }
+        while (true) {
+            /* loop */
 
-        if (dx < 0) {
-            dx = -dx;
-            stepx = -1;
-        } else {
-            stepx = 1;
-        }
-        int straight = 0;
-        int diagonal = 0;
-
-        if (dx > dy) {
-            dy <<= 1;// dy is now 2*dy
-            dx <<= 1;
-            int fraction = dy - (dx >> 1);// same as 2*dx - dy
-            while (x0 != x1) {
-                if (fraction >= 0) {
-                    y0 += stepy;
-                    fraction -= dx;// same as fraction -= 2*dx
-                    if (straight != 0) {
-                        move_x(straight);
-                        straight = 0;
-                    }
-                    diagonal++;
+            if (laser_cutting) {
+                power_remainder += power;
+                if (power_remainder >= 1000) {
+                    power_remainder -= 1000;
+                    pulse_on = true;
                 } else {
-                    if (diagonal != 0) {
-                        move_angle(diagonal * stepx, diagonal * stepy);
-                        diagonal = 0;
-                    }
-                    straight += stepx;
+                    pulse_on = false;
                 }
-                x0 += stepx;
-                fraction += dy;// same as fraction += 2*dy
             }
-            if (straight != 0) {
-                move_x(straight);
-            }
-            if (diagonal != 0) {
-                move_angle(diagonal * stepx, diagonal * stepy);
-            }
-        } else {
-            dy <<= 1;
-            dx <<= 1;
-            int fraction = dx - (dy >> 1);
-            while (y0 != y1) {
-                if (fraction >= 0) {
-                    x0 += stepx;
-                    fraction -= dy;
-                    if (straight != 0) {
-                        move_y(straight);
-                        straight = 0;
-                    }
-                    diagonal++;
+            int abs_cud_x = Math.abs(cud_x);
+            int abs_cud_y = Math.abs(cud_y);
+
+            if ((this.is_on != pulse_on)
+                    || ((abs_cud_x != abs_cud_y)
+                    && (abs_cud_x != 0)
+                    && (abs_cud_y != 0))) {
+                // The current settings do not combine. Actualize previous values.
+                if (Math.abs(pud_x) == Math.abs(pud_y)) {
+                    move_angle(pud_x, pud_y);
+                } else if ((pud_y == 0) && (pud_x != 0)) {
+                    move_x(pud_x);
+                } else if ((pud_y != 0) && (cud_y == 0)) {
+                    move_y(cud_y);
+                }
+                else {
+                    throw new IllegalStateException("This state should be impossible.");
+                }
+                cud_x -= pud_x; //The difference of the values *is* combinable.
+                cud_y -= pud_y;
+                if (pulse_on) {
+                    laser_on(); //set laser to the correct state.
                 } else {
-                    if (diagonal != 0) {
-                        move_angle(diagonal * stepx, diagonal * stepy);
-                        diagonal = 0;
-                    }
-                    straight += stepy;
+                    laser_off();
                 }
-                y0 += stepy;
-                fraction += dx;
             }
-            if (straight != 0) {
-                move_y(straight);
+            //yield x0, y0
+            if ((x0 == x1) && (y0 == y1)) {
+                //update final values.
+                break;
             }
-            if (diagonal != 0) {
-                move_angle(diagonal * stepx, diagonal * stepy);
+            int e2 = 2 * err;
+            if (e2 >= dy) {//  # e_xy+e_y < 0
+                err += dy;
+                pud_x = cud_x;
+                x0 += sx;
+                cud_x += sx;
+
+            }
+            if (e2 <= dx) {//  # e_xy+e_y < 0
+                err += dx;
+                pud_y = cud_y;
+                y0 += sy;
+                cud_y += sy;
             }
         }
     }
@@ -497,7 +502,7 @@ public class K40Device {
     }
 
     public String getSpeed(double mm_per_second, boolean raster) {
-        int gear = 1;
+        int gear;
         if (raster) {
             if (mm_per_second > 500) {
                 mm_per_second = 500;
