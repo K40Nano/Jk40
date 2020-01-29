@@ -22,7 +22,7 @@ public class WinUsb implements BaseUsb {
     public WinUsb(int index) {
         this.index = index;
         if (Platform.isWindows()) {
-            lib = (CH341DLL) Native.load("CH341DLL.dll", CH341DLL.class);
+                lib = (CH341DLL) Native.load("CH341DLL", CH341DLL.class);
         }
     }
 

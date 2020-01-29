@@ -315,7 +315,7 @@ public class K40Usb implements BaseUsb {
         } finally {
             LibUsb.freeDeviceList(list, true);
         }
-        throw new LibUsbException("Device was not found.", 0);
+        throw new LibUsbException("Device was not found.", LibUsb.ERROR_NO_DEVICE);
     }
 
     private void openContext() throws LibUsbException {

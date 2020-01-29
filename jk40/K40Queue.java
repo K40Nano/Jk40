@@ -16,27 +16,28 @@ public class K40Queue {
     public static final int DRIVER_LIBUSB = 1;
     public static final int DRIVER_WINDOWS = 2;
     
-    public int driver_type = DRIVER_WINDOWS;
+    public boolean mock = true;
 
     final LinkedBlockingQueue<String> queue = new LinkedBlockingQueue<String>();
     private final StringBuilder buffer = new StringBuilder();
     BaseUsb usb;
 
     public void open() {
-        switch (driver_type) {
-            case 0:
-                usb = new MockUsb();
-                break;
-            case 1:
-                usb = new K40Usb();
-                break;
-            case 2:
-                usb = new WinUsb(0);
-                break;
-            default:
-                break;
+        if (mock) {
+            usb = new MockUsb();
+            usb.open();
         }
-        usb.open();
+        else {
+            try {
+                usb = new WinUsb(0);
+                usb.open();
+            }
+            catch (Error e) {
+                usb = new K40Usb();
+                usb.open();
+            }
+            
+        }
     }
 
     public void close() {

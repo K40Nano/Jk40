@@ -402,20 +402,18 @@ public class K40Device {
             int abs_cud_x = Math.abs(cud_x);
             int abs_cud_y = Math.abs(cud_y);
 
-            if ((this.is_on != pulse_on)
-                    || ((abs_cud_x != abs_cud_y)
-                    && (abs_cud_x != 0)
-                    && (abs_cud_y != 0))) {
+            if (((x0 == x1) && (y0 == y1)) //line is over.
+                    || (this.is_on != pulse_on) // fire pulse changed.
+                    || ((abs_cud_x != abs_cud_y) // not diagonal
+                    && (abs_cud_x != 0) // not x-direction
+                    && (abs_cud_y != 0))) { // not y-direction
                 // The current settings do not combine. Actualize previous values.
-                if (Math.abs(pud_x) == Math.abs(pud_y)) {
+                if (pud_x != 0 && Math.abs(pud_x) == Math.abs(pud_y)) {
                     move_angle(pud_x, pud_y);
                 } else if ((pud_y == 0) && (pud_x != 0)) {
                     move_x(pud_x);
-                } else if ((pud_y != 0) && (cud_y == 0)) {
-                    move_y(cud_y);
-                }
-                else {
-                    throw new IllegalStateException("This state should be impossible.");
+                } else if ((pud_y != 0) && (pud_x == 0)) {
+                    move_y(pud_y);
                 }
                 cud_x -= pud_x; //The difference of the values *is* combinable.
                 cud_y -= pud_y;
