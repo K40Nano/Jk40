@@ -76,14 +76,14 @@ public class K40Usb implements BaseUsb {
      * https://lentz.com.au/blog/calculating-crc-with-a-tiny-32-entry-lookup-table
      * *******************
      */
-    final int[] CRC_TABLE = new int[]{
+    static final int[] CRC_TABLE = new int[]{
         0x00, 0x5E, 0xBC, 0xE2, 0x61, 0x3F, 0xDD, 0x83,
         0xC2, 0x9C, 0x7E, 0x20, 0xA3, 0xFD, 0x1F, 0x41,
         0x00, 0x9D, 0x23, 0xBE, 0x46, 0xDB, 0x65, 0xF8,
         0x8C, 0x11, 0xAF, 0x32, 0xCA, 0x57, 0xE9, 0x74
     };
 
-    private byte crc(ByteBuffer line) {
+    public static byte crc(ByteBuffer line) {
         int crc = 0;
         for (int i = 2; i < 32; i++) {
             crc = line.get(i) ^ crc;

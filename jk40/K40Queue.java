@@ -12,18 +12,29 @@ import java.util.concurrent.LinkedBlockingQueue;
  *
  */
 public class K40Queue {
-
-    public boolean mock = true;
+    public static final int DRIVER_MOCK = 0;
+    public static final int DRIVER_LIBUSB = 1;
+    public static final int DRIVER_WINDOWS = 2;
+    
+    public int driver_type = DRIVER_WINDOWS;
 
     final LinkedBlockingQueue<String> queue = new LinkedBlockingQueue<String>();
     private final StringBuilder buffer = new StringBuilder();
     BaseUsb usb;
 
     public void open() {
-        if (mock) {
-            usb = new MockUsb();
-        } else {
-            usb = new K40Usb();
+        switch (driver_type) {
+            case 0:
+                usb = new MockUsb();
+                break;
+            case 1:
+                usb = new K40Usb();
+                break;
+            case 2:
+                usb = new WinUsb(0);
+                break;
+            default:
+                break;
         }
         usb.open();
     }

@@ -225,7 +225,6 @@ public class K40Device {
 
     void execute() {
         queue.execute();
-
     }
 
     void encode_default_move(int dx, int dy) {
