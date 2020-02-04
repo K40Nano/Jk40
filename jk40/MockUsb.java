@@ -39,7 +39,7 @@ public class MockUsb implements BaseUsb {
     @Override
     public void send_packet(CharSequence subSequence) {
         sleep(100);
-        System.out.println("Mock Packst Sent:" + subSequence);
+        System.out.println("Mock Packet Sent:" + subSequence);
     }
 
     @Override

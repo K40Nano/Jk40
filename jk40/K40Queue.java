@@ -10,11 +10,13 @@ import java.util.concurrent.LinkedBlockingQueue;
  * respectively. This permits a single stream of text data to unambiguously
  * control the laser.
  *
- *
  */
 public class K40Queue {
-
-    public boolean mock = true;
+    public static final int DRIVER_MOCK = 0;
+    public static final int DRIVER_LIBUSB = 1;
+    public static final int DRIVER_WINDOWS = 2;
+    
+    public boolean mock = false;
 
     final LinkedBlockingQueue<String> queue = new LinkedBlockingQueue<String>();
     private final StringBuilder buffer = new StringBuilder();
@@ -23,10 +25,19 @@ public class K40Queue {
     public void open() {
         if (mock) {
             usb = new MockUsb();
-        } else {
-            usb = new K40Usb();
+            usb.open();
         }
-        usb.open();
+        else {
+            try {
+                usb = new WinUsb(0);
+                usb.open();
+            }
+            catch (Error e) {
+                usb = new K40Usb();
+                usb.open();
+            }
+            
+        }
     }
 
     public void close() {
